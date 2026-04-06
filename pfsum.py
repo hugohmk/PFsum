@@ -1,7 +1,7 @@
 
 # Requer Python v3.11+
 
-pfsum_versao = "1.3.0" #(2025-12-02)
+pfsum_versao = "1.3.1" #(2026-04-06)
 
 import os
 import argparse
@@ -128,7 +128,7 @@ def caminhada(caminho, tamanho_grande):
     arquivos_pequenos, indice_pequenos, arquivos_grandes, indice_grandes, nomes = [], [], [], [], []
     for i in os.walk(caminho, topdown=False):
         for j in i[2]:
-            nome = os.path.join(os.path.relpath(i[0], caminho), j).lstrip("\\./")
+            nome = os.path.join(os.path.relpath(i[0], caminho).rstrip("\\./"), j)
             caminho_completo = os.path.join(i[0], j)
             
             indice = len(arquivos_pequenos)+len(arquivos_grandes)
