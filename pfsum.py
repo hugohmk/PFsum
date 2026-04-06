@@ -10,6 +10,14 @@ import encodings
 import multiprocessing
 import tempfile
 import zlib
+import signal
+import sys
+
+
+
+def SIGINThandler(sig, frame):
+    sys.exit(0)
+signal.signal(signal.SIGINT, SIGINThandler)
 
 
 
