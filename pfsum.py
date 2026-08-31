@@ -962,7 +962,7 @@ def checa_hashes(resultado, codificacao, functor, tarefas, tamanho_grande):
     for i in range(len(hashes)):
         if hashes[i] == encontrados[i][0].lower(): integros += 1
         else:
-            print("Arquivo com hash direfente:", encontrados[i][1])
+            print("Arquivo com hash diferente:", encontrados[i][1])
             diferentes += 1
 
     for nao_encontrado in nao_encontrados:
