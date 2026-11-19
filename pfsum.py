@@ -1,7 +1,7 @@
 
 # Requer Python v3.11+
 
-pfsum_versao = "2.0.0" #(2026-08-28)
+pfsum_versao = "2.0.1" #(2026-11-19)
 
 import os
 import argparse
@@ -13,6 +13,7 @@ import zlib
 import signal
 import sys
 import time
+import collections
 
 
 
@@ -39,6 +40,11 @@ celulas_por_segundo = 10
 # custo aproximado de cada arquivo, em bytes equivalentes: em arquivos pequenos o tempo
 # nao vem dos bytes lidos, e sim de abrir e fechar cada um (usado so na estimativa de tempo)
 custo_arquivo = 2**16
+# janela, em segundos, da velocidade e do tempo restante: a media desde o inicio reagia
+# devagar demais quando o ritmo mudava (arquivos pequenos dando lugar aos grandes, fim do
+# cache do disco), e a estimativa ficava longe do real. Janela menor responde mais rapido,
+# mas oscila mais em disco lento, onde cada bloco lido pesa mais dentro da janela
+janela_velocidade = 3.0
 # desenho da barra, desligado pela opcao -sb
 mostra_progresso = True
 # celulas da barra: blocos quando a saida de erro aceita, senao ASCII
@@ -428,6 +434,11 @@ class Progresso(object):
     indeterminada; quando ela termina, a barra passa a mostrar a fracao concluida e a
     estimativa do tempo restante.
 
+    A velocidade e o tempo restante vem dos ultimos janela_velocidade segundos (ver
+    velocidade_recente), e nao da media desde o inicio, que demora a perceber quando o
+    ritmo muda. So a linha que fica na tela no fim, que resume o processamento, usa a
+    media.
+
     O desenho vai para a saida de erro, e so quando ela e um terminal: a saida normal
     fica livre para ser redirecionada (-p).
 
@@ -438,6 +449,8 @@ class Progresso(object):
         total_bytes (int): bytes descobertos ate agora
         completo (bool): indica que a descoberta terminou e os totais sao finais
         ativa (bool): indica que a barra esta sendo desenhada, e que vale contar
+        amostras (collections.deque): amostras (instante, bytes lidos, trabalho feito)
+            da janela de velocidade, usadas somente pela tarefa de desenho
     """
 
     # barra em exibicao, usada para apagar a linha antes de qualquer outra impressao
@@ -461,6 +474,9 @@ class Progresso(object):
         self.ativa = False
         self.desenhada = False
         self.colunas = 80
+        # a primeira amostra e o proprio inicio: ate a janela encher, a velocidade e a
+        # media desde o comeco, como antes
+        self.amostras = collections.deque([(self.inicio, 0, 0)])
 
     def inicia(self):
         """Comeca a desenhar a barra, se ela estiver habilitada e a saida de erro for um terminal"""
@@ -487,7 +503,7 @@ class Progresso(object):
         if not self.desenhada: return
         if concluido:
             self.completo = True
-            self.escreve(self.linha() + "\n")
+            self.escreve(self.linha(final=True) + "\n")
         else:
             self.limpa()
 
@@ -518,8 +534,39 @@ class Progresso(object):
             if self.desenhada: self.escreve("\r" + " "*(self.colunas - 1) + "\r")
             if mensagem: print(*mensagem)
 
-    def linha(self):
+    def velocidade_recente(self, agora, lidos, trabalho):
+        """Mede a velocidade dos ultimos janela_velocidade segundos
+
+        Cada desenho guarda uma amostra dos contadores, e a velocidade e a diferenca
+        entre a amostra atual e a ancora: a mais recente que ainda cobre a janela
+        inteira. As anteriores a ela saem, entao ficam umas trinta amostras. A conta
+        roda so na tarefa de desenho, dez vezes por segundo, e as tarefas de calculo nao
+        pagam nada por ela: os contadores sao os mesmos que ja existiam.
+
+        Args:
+            agora (float): instante da amostra atual
+            lidos (int): bytes lidos ate agora
+            trabalho (int): trabalho feito ate agora, em bytes equivalentes
+
+        Returns:
+            (bytes_por_segundo, trabalho_por_segundo) (float, float)
+        """
+        amostras = self.amostras
+        amostras.append((agora, lidos, trabalho))
+        limite = agora - janela_velocidade
+        # sobram ao menos duas amostras: com janela zero, a velocidade e a do ultimo intervalo
+        while len(amostras) > 2 and amostras[1][0] <= limite: amostras.popleft()
+        instante, lidos_antes, trabalho_antes = amostras[0]
+        intervalo = agora - instante
+        if intervalo <= 0: return 0.0, 0.0
+        return (lidos - lidos_antes)/intervalo, (trabalho - trabalho_antes)/intervalo
+
+    def linha(self, final=False):
         """Monta a linha da barra, ajustada a largura do terminal
+
+        Args:
+            final (bool): indica a linha que fica na tela no fim, que resume o
+                processamento com a velocidade media, e nao com a recente
 
         Returns:
             texto (str): linha completa, ja com o retorno de carro do inicio
@@ -527,22 +574,34 @@ class Progresso(object):
         try: self.colunas = os.get_terminal_size(sys.stderr.fileno()).columns
         except (OSError, ValueError, AttributeError): pass
 
-        decorrido = time.monotonic() - self.inicio
+        agora = time.monotonic()
+        decorrido = agora - self.inicio
         arquivos = sum(self.arquivos)
         lidos = sum(self.lidos)
+        # em arquivo pequeno o tempo vem de abrir e fechar, e nao dos bytes lidos
+        trabalho = lidos + arquivos*custo_arquivo
+
+        if final:
+            velocidade = lidos/decorrido if decorrido > 0 else 0.0
+            ritmo = 0.0
+        else:
+            velocidade, ritmo = self.velocidade_recente(agora, lidos, trabalho)
 
         fracao = 0.0
         if self.completo:
             total = self.total_bytes + self.total_arquivos*custo_arquivo
-            if total > 0: fracao = min(1.0, (lidos + arquivos*custo_arquivo)/total)
+            if total > 0: fracao = min(1.0, trabalho/total)
             campos = ["{}/{} arq".format(arquivos, self.total_arquivos),
                       formata_tamanho(lidos) + "/" + formata_tamanho(self.total_bytes)]
         else:
             campos = ["{} arq".format(arquivos), formata_tamanho(lidos)]
 
-        if decorrido > 0: campos.append(formata_tamanho(lidos/decorrido) + "/s")
+        if decorrido > 0: campos.append(formata_tamanho(velocidade) + "/s")
         campos.append(formata_tempo(decorrido))
-        if 0 < fracao < 1: campos.append("restam " + formata_tempo(decorrido*(1 - fracao)/fracao))
+        # o que falta, no ritmo da janela: se nada andou na janela inteira, nao ha
+        # estimativa, e no fim nao ha o que estimar
+        if 0 < fracao < 1 and not final:
+            campos.append("restam " + formata_tempo((total - trabalho)/ritmo if ritmo > 0 else -1))
 
         # o percentual e truncado, e nao arredondado: 100% so aparece quando tudo terminou
         esquerda = "{:3d}% ".format(int(100*fracao)) if self.completo else "     "

@@ -20,7 +20,7 @@ python "CAMINHO_COMPLETO\pfsum.py"
 
 Se já existir um arquivo de saída com o mesmo nome, o script pergunta antes de sobrescrevê-lo, e a pergunta vem **antes** do processamento — não há risco de descobrir no fim de uma árvore grande que o arquivo não devia ser trocado. Responder "s" (ou "sim") grava; qualquer outra resposta cancela e não altera nada. A pergunta só aparece quando há um terminal para respondê-la: com a entrada padrão redirecionada, como em uma tarefa agendada, o arquivo é sobrescrito como sempre foi. Para nunca perguntar, usar "-sp".
 
-Enquanto o processamento acontece é desenhada uma barra de progresso, com o percentual concluído, a velocidade de leitura e a estimativa de tempo restante. Ela é redesenhada de tempos em tempos (e não a cada arquivo), e sai na saída de erro: redirecionar a saída normal, como em "-p > hashes.txt", continua funcionando. A barra só aparece quando a saída de erro é um terminal, e pode ser desligada com "-sb".
+Enquanto o processamento acontece é desenhada uma barra de progresso, com o percentual concluído, a velocidade de leitura e a estimativa de tempo restante. A velocidade e a estimativa são medidas nos últimos 3 segundos, e não desde o início, para acompanhar as mudanças de ritmo (como a troca de arquivos pequenos por grandes); a linha que fica na tela no fim mostra a velocidade média do processamento inteiro. A barra é redesenhada de tempos em tempos (e não a cada arquivo), e sai na saída de erro: redirecionar a saída normal, como em "-p > hashes.txt", continua funcionando. A barra só aparece quando a saída de erro é um terminal, e pode ser desligada com "-sb".
 
 Para verificar um arquivo "hashes.txt", abrir um console no mesmo diretório do arquivo e chamar o script no modo de verificação "-c".
 ```
